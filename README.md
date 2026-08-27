@@ -58,14 +58,14 @@ English version: [README.en.md](README.en.md)
   将本仓库克隆或复制到 Codex 技能目录：
   ```bash
   # Windows PowerShell
-  git clone https://github.com/bluessoul/scholar-impact-scraper.git "$HOME\.codex\skills\nature-impact"
+  git clone https://github.com/bluessoul/nature-impact.git "$HOME\.codex\skills\nature-impact"
 
   # macOS / Linux
-  git clone https://github.com/bluessoul/scholar-impact-scraper.git ~/.codex/skills/nature-impact
+  git clone https://github.com/bluessoul/nature-impact.git ~/.codex/skills/nature-impact
   ```
   或者如果已配置 `skills` CLI：
   ```bash
-  npx skills add bluessoul/scholar-impact-scraper --global --agent codex --skill nature-impact --yes --copy
+  npx skills add bluessoul/nature-impact --global --agent codex --skill nature-impact --yes --copy
   ```
 - **使用体验**：在 Codex 中直接输入自然语言，例如：
   > “从简历 `cv.docx` 中提取成果并整理近 5 年发表记录，导出 GB/T 7714-2025 格式”

@@ -29,14 +29,14 @@ This project does not bypass platform access controls. Features requiring accoun
 - **Global / Project Skill Installation**:
   ```bash
   # Windows PowerShell
-  git clone https://github.com/bluessoul/scholar-impact-scraper.git "$HOME\.codex\skills\nature-impact"
+  git clone https://github.com/bluessoul/nature-impact.git "$HOME\.codex\skills\nature-impact"
 
   # macOS / Linux
-  git clone https://github.com/bluessoul/scholar-impact-scraper.git ~/.codex/skills/nature-impact
+  git clone https://github.com/bluessoul/nature-impact.git ~/.codex/skills/nature-impact
   ```
   Or via `skills` CLI:
   ```bash
-  npx skills add bluessoul/scholar-impact-scraper --global --agent codex --skill nature-impact --yes --copy
+  npx skills add bluessoul/nature-impact --global --agent codex --skill nature-impact --yes --copy
   ```
 
 ### 2. Claude Code
