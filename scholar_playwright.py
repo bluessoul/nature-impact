@@ -165,50 +165,30 @@ def fetch_doi_evidence_via_crossref(title: str) -> dict:
 def fetch_doi_via_crossref(title: str) -> str:
     return fetch_doi_evidence_via_crossref(title).get("doi", "N/A")
 
-OPENALEX_WORK_SELECT = ",".join([
-    "id",
-    "doi",
-    "ids",
-    "title",
-    "display_name",
-    "publication_year",
-    "publication_date",
-    "authorships",
-    "corresponding_author_ids",
-    "biblio",
-    "primary_location",
-    "type",
-    "cited_by_count",
-])
+from intake.openalex_client import (
+    OpenAlexClient,
+    get_default_openalex_client,
+    OPENALEX_WORK_SELECT,
+)
 
 def openalex_get_works(params: dict, api_key: str = "") -> dict:
-    params = dict(params)
-    if api_key:
-        params["api_key"] = api_key
-    response = requests.get("https://api.openalex.org/works", params=params, timeout=20)
-    response.raise_for_status()
-    return response.json()
+    client = OpenAlexClient(api_key=api_key) if api_key else get_default_openalex_client()
+    results = client.get_works(params, select=params.get("select", OPENALEX_WORK_SELECT))
+    return {"results": results}
 
-def fetch_openalex_work_candidates(record: dict, api_key: str = "") -> tuple:
+def fetch_openalex_work_candidates(record: dict, api_key: str = "", client: OpenAlexClient = None) -> tuple:
+    if client is None:
+        client = OpenAlexClient(api_key=api_key) if api_key else get_default_openalex_client()
     doi = normalize_doi(record.get("DOI", ""))
     if doi:
-        doi_url = f"https://doi.org/{doi}"
-        data = openalex_get_works({
-            "filter": f"doi:{doi_url}",
-            "select": OPENALEX_WORK_SELECT,
-            "per-page": 1,
-        }, api_key)
-        return data.get("results", []), "doi"
+        work = client.get_work_by_doi(doi, select=OPENALEX_WORK_SELECT)
+        return ([work] if work else []), "doi"
 
     title = clean_bib_value(record.get("Title"))
     if not title:
         return [], "none"
-    data = openalex_get_works({
-        "search": title,
-        "select": OPENALEX_WORK_SELECT,
-        "per-page": 3,
-    }, api_key)
-    return data.get("results", []), "title"
+    results = client.search_works_by_title(title, per_page=3, select=OPENALEX_WORK_SELECT)
+    return results, "title"
 
 def openalex_source(work: dict) -> tuple:
     source = ((work.get("primary_location") or {}).get("source") or {})
@@ -311,10 +291,54 @@ def ensure_openalex_columns(record: dict) -> None:
     for key, value in defaults.items():
         record.setdefault(key, value)
 
-def enrich_record_with_openalex(record: dict, api_key: str = "", min_confidence: float = 0.82) -> None:
+def apply_openalex_parsed_work(record: dict, parsed: dict, score: float, method: str, min_confidence: float = 0.82) -> None:
+    label = confidence_label(score)
+    record["OpenAlex ID"] = parsed["id"]
+    record["OpenAlex DOI"] = parsed["doi"]
+    record["OpenAlex Match Confidence"] = f"{score:.3f}"
+    record["OpenAlex Match Method"] = method
+    record["OpenAlex Authors"] = parsed["authors"]
+    record["OpenAlex Author Count"] = parsed["author_count"] if parsed["author_count"] else "N/A"
+    record["OpenAlex Corresponding Authors"] = parsed["corresponding_authors"]
+    record["OpenAlex Corresponding Author Positions"] = parsed["corresponding_positions"]
+    record["OpenAlex Source"] = parsed["source"]
+    record["OpenAlex Publisher"] = parsed["publisher"]
+    record["OpenAlex Volume"] = parsed["volume"]
+    record["OpenAlex Issue"] = parsed["issue"]
+    record["OpenAlex Pages"] = parsed["pages"]
+    record["OpenAlex Evidence JSON"] = json.dumps({
+        "method": method,
+        "confidence": score,
+        "confidence_label": label,
+        "matched_title": parsed["title"],
+        "matched_year": parsed["year"],
+        "openalex_id": parsed["id"],
+    }, ensure_ascii=False)
+
+    if score < min_confidence:
+        return
+
+    record["Metadata Enrichment Source"] = "OpenAlex"
+    record["Metadata Enrichment Confidence"] = label
+    if not has_value(record.get("DOI")) and parsed["doi"] != "N/A":
+        record["DOI"] = parsed["doi"]
+        record["DOI Source"] = "OpenAlex"
+        record["DOI Confidence"] = label
+        record["DOI Evidence JSON"] = record["OpenAlex Evidence JSON"]
+    if ("..." in str(record.get("Authors", "")) or not has_value(record.get("Authors"))) and parsed["authors"] != "N/A":
+        record["Authors"] = parsed["authors"]
+    if parsed["source"] != "N/A":
+        set_if_missing(record, "Journal/Venue", parsed["source"])
+        set_if_missing(record, "Journal", parsed["source"])
+    set_if_missing(record, "Publisher", parsed["publisher"])
+    set_if_missing(record, "Volume", parsed["volume"])
+    set_if_missing(record, "Issue", parsed["issue"])
+    set_if_missing(record, "Pages", parsed["pages"])
+
+def enrich_record_with_openalex(record: dict, api_key: str = "", min_confidence: float = 0.82, client: OpenAlexClient = None) -> None:
     ensure_openalex_columns(record)
     try:
-        candidates, method = fetch_openalex_work_candidates(record, api_key)
+        candidates, method = fetch_openalex_work_candidates(record, api_key, client=client)
         if not candidates:
             record["OpenAlex Evidence JSON"] = json.dumps({"error": "no matching OpenAlex work", "method": method}, ensure_ascii=False)
             return
@@ -325,51 +349,55 @@ def enrich_record_with_openalex(record: dict, api_key: str = "", min_confidence:
             score = score_openalex_match(record, parsed, method)
             parsed_candidates.append((score, parsed))
         score, parsed = max(parsed_candidates, key=lambda item: item[0])
-        label = confidence_label(score)
-
-        record["OpenAlex ID"] = parsed["id"]
-        record["OpenAlex DOI"] = parsed["doi"]
-        record["OpenAlex Match Confidence"] = f"{score:.3f}"
-        record["OpenAlex Match Method"] = method
-        record["OpenAlex Authors"] = parsed["authors"]
-        record["OpenAlex Author Count"] = parsed["author_count"] if parsed["author_count"] else "N/A"
-        record["OpenAlex Corresponding Authors"] = parsed["corresponding_authors"]
-        record["OpenAlex Corresponding Author Positions"] = parsed["corresponding_positions"]
-        record["OpenAlex Source"] = parsed["source"]
-        record["OpenAlex Publisher"] = parsed["publisher"]
-        record["OpenAlex Volume"] = parsed["volume"]
-        record["OpenAlex Issue"] = parsed["issue"]
-        record["OpenAlex Pages"] = parsed["pages"]
-        record["OpenAlex Evidence JSON"] = json.dumps({
-            "method": method,
-            "confidence": score,
-            "confidence_label": label,
-            "matched_title": parsed["title"],
-            "matched_year": parsed["year"],
-            "openalex_id": parsed["id"],
-        }, ensure_ascii=False)
-
-        if score < min_confidence:
-            return
-
-        record["Metadata Enrichment Source"] = "OpenAlex"
-        record["Metadata Enrichment Confidence"] = label
-        if not has_value(record.get("DOI")) and parsed["doi"] != "N/A":
-            record["DOI"] = parsed["doi"]
-            record["DOI Source"] = "OpenAlex"
-            record["DOI Confidence"] = label
-            record["DOI Evidence JSON"] = record["OpenAlex Evidence JSON"]
-        if ("..." in str(record.get("Authors", "")) or not has_value(record.get("Authors"))) and parsed["authors"] != "N/A":
-            record["Authors"] = parsed["authors"]
-        if parsed["source"] != "N/A":
-            set_if_missing(record, "Journal/Venue", parsed["source"])
-            set_if_missing(record, "Journal", parsed["source"])
-        set_if_missing(record, "Publisher", parsed["publisher"])
-        set_if_missing(record, "Volume", parsed["volume"])
-        set_if_missing(record, "Issue", parsed["issue"])
-        set_if_missing(record, "Pages", parsed["pages"])
+        apply_openalex_parsed_work(record, parsed, score, method, min_confidence=min_confidence)
     except Exception as exc:
         record["OpenAlex Evidence JSON"] = json.dumps({"error": str(exc)}, ensure_ascii=False)
+
+def enrich_records_with_openalex_batch(
+    records: list,
+    api_key: str = "",
+    min_confidence: float = 0.82,
+    max_records: int = 0,
+) -> None:
+    """Enriches publication records via OpenAlex using batch DOI queries where possible, with title fallback."""
+    if not records:
+        return
+    limit = max_records if max_records and max_records > 0 else len(records)
+    target_records = records[:limit]
+    client = OpenAlexClient(api_key=api_key) if api_key else get_default_openalex_client()
+
+    # Step 1: Collect records with pre-existing DOIs for batch lookup
+    doi_to_records: dict[str, list[dict]] = {}
+    remaining_records: list[dict] = []
+
+    for record in target_records:
+        ensure_openalex_columns(record)
+        doi = normalize_doi(record.get("DOI", ""))
+        if doi:
+            doi_to_records.setdefault(doi, []).append(record)
+        else:
+            remaining_records.append(record)
+
+    if doi_to_records:
+        logger.info(f"Batch querying OpenAlex for {len(doi_to_records)} distinct DOIs...")
+        batch_works = client.batch_get_works_by_dois(list(doi_to_records.keys()))
+        for doi, rec_list in doi_to_records.items():
+            work = batch_works.get(doi)
+            if work:
+                parsed = parse_openalex_work(work)
+                for record in rec_list:
+                    apply_openalex_parsed_work(record, parsed, 1.0, "doi_batch", min_confidence=min_confidence)
+            else:
+                # DOI batch missed or not found, add to remaining for title fallback
+                remaining_records.extend(rec_list)
+
+    # Step 2: Fallback title search for remaining records
+    if remaining_records:
+        logger.info(f"Querying OpenAlex by title for {len(remaining_records)} remaining records...")
+        for idx, record in enumerate(remaining_records, 1):
+            title = record.get("Title", "")
+            logger.info(f"[{idx}/{len(remaining_records)}] OpenAlex title search: '{title[:45]}...'")
+            enrich_record_with_openalex(record, api_key=api_key, min_confidence=min_confidence, client=client)
 
 # Set up logging
 logging.basicConfig(
@@ -1606,12 +1634,12 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
 
         if openalex_enrich and extracted_data:
             logger.info("Enriching records via OpenAlex before Crossref fallback...")
-            import time
-            limit = openalex_max_records if openalex_max_records and openalex_max_records > 0 else len(extracted_data)
-            for idx, data in enumerate(extracted_data[:limit]):
-                logger.info(f"[{idx+1}/{min(limit, len(extracted_data))}] Querying OpenAlex for: '{data.get('Title', '')[:50]}...'")
-                enrich_record_with_openalex(data, openalex_api_key, openalex_min_confidence)
-                time.sleep(0.12 if openalex_api_key else 0.35)
+            enrich_records_with_openalex_batch(
+                extracted_data,
+                api_key=openalex_api_key,
+                min_confidence=openalex_min_confidence,
+                max_records=openalex_max_records,
+            )
 
         # ==========================================
         # Fetching DOIs via Crossref fallback

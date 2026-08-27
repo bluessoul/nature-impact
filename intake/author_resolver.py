@@ -5,6 +5,8 @@ from urllib.parse import quote
 import requests
 
 
+from intake.openalex_client import get_default_openalex_client
+
 OPENALEX_AUTHORS_URL = "https://api.openalex.org/authors"
 
 
@@ -65,13 +67,8 @@ def resolve_author(profile: dict, search_func=None, min_confidence: float = 0.78
 
 
 def search_openalex_authors(name: str, per_page: int = 5) -> list[dict]:
-    response = requests.get(
-        OPENALEX_AUTHORS_URL,
-        params={"search": name, "per-page": per_page},
-        timeout=20,
-    )
-    response.raise_for_status()
-    return response.json().get("results", [])
+    client = get_default_openalex_client()
+    return client.search_authors(name, per_page=per_page)
 
 
 def score_openalex_candidates(results: list[dict], profile: dict) -> list[dict]:
