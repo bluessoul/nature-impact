@@ -1,8 +1,14 @@
 ---
-name: scholar-impact-scraper
-description: "Academic impact scraping toolkit for Google Scholar, Web of Science, ORCID, Clarivate JCR, and user-provided local CAS journal partition data. Uses Python and Playwright/Node helpers. Credentials, browser sessions, and licensed data must stay local."
-version: "1.0.0"
-author: "Antigravity"
+name: nature-impact
+description: >-
+  Academic impact evaluation, scholar citation metrics (Google Scholar, Web of Science, ORCID),
+  Clarivate JCR & CAS journal partition lookup, OpenAlex/Crossref metadata enrichment, and CV/grant
+  template publication intake with GB/T 7714-2025 and multi-format citation export.
+  Use when the user needs scholar citation analysis, h-index tracking, WoS citation/other-citation verification,
+  journal JCR Q1-Q4 / CAS partitions, CV/resume publication parsing, or academic report generation.
+  Also trigger on Chinese phrasings like 学术影响力、学者引用、WoS他引、H指数、JCR分区、中科院分区、简历成果提取、申报表成果整理、GB/T 7714排版.
+version: 2.0.0
+author: Antigravity / bluessoul
 metadata:
   openclaw:
     requires:
@@ -11,9 +17,10 @@ metadata:
         - ORCID_CLIENT_SECRET (optional)
         - CLARIVATE_EMAIL (optional)
         - CLARIVATE_PASSWORD (optional)
+        - OPENALEX_API_KEY (optional)
 ---
 
-# Scholar Impact Scraper
+# Nature Impact — Academic Impact & Publication Intake Router
 
 Use this skill when the user needs to collect or reconcile academic impact data from Google Scholar, Web of Science, ORCID, Clarivate JCR, or user-provided local CAS journal partition files.
 

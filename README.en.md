@@ -1,14 +1,74 @@
-﻿中文说明：[README.md](README.md)
+中文说明：[README.md](README.md)
 
-# Scholar Impact Scraper
+# Nature Impact — Academic Impact & Publication Intake (nature-impact)
+
+[![Install](https://img.shields.io/badge/install-Codex%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20OpenClaw%20%7C%20OpenCode%20%7C%20Hermes-111827)](#multi-platform-installation--setup)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Nature Skills Family](https://img.shields.io/badge/ecosystem-Nature%20Skills-green.svg)](https://github.com/Yuan1z0825/nature-skills)
+
+> **`nature-impact`** (formerly `scholar-impact-scraper`) is the core academic impact evaluation, citation metrics, journal quartile/partition lookup, and publication portfolio management skill within the **Nature Skills Ecosystem**.
 
 ## What Problem It Solves
 
-Researchers, research assistants, and research administrators often need to collect the same scattered signals again and again: a scholar's Google Scholar publications and citations, Web of Science citation and non-self-citation data, ORCID works, and JCR quartiles, rankings, and impact factors for journals. These signals live on different platforms, manual copy-paste is slow, and the resulting spreadsheets are easy to make inconsistent.
+Researchers, research assistants, PIs, and research administrators often need to collect and reconcile the same scattered signals:
+- Scholar publications, citation counts, h-index, and i10-index on **Google Scholar**;
+- **Web of Science (WoS)** citation and non-self-citation metrics;
+- **ORCID** official certified publication records;
+- **Clarivate JCR** journal categories, impact factors (IF), quartiles (Q1-Q4), and rankings;
+- **CAS Journal Partitions** (Chinese Academy of Sciences) tiers and Top journal designations;
+- Author order, first/corresponding-author verification, DOI and volume/issue/pages completion, and multi-format reference export including **GB/T 7714-2025**, APA, MLA, BibTeX, etc.
 
-This project turns that repeated work into an agent-friendly workflow. You provide Scholar IDs, WoS IDs, ORCID iDs, or journal lists; the toolkit helps with scraping, login reminders, human-in-the-loop verification, result export, and safety checks. It is useful for scholar impact screening, CV or grant-preparation data collection, journal quartile checks, publication-list enrichment, and semi-automated research data tasks assisted by Codex, Claude Code, OpenClaw, or similar clients.
+`nature-impact` turns these repetitive data workflows into standard Agent Skills and command-line automation, natively supporting **Codex, Claude Code, Antigravity, OpenClaw, OpenCode, Hermes**, and other AI coding assistants.
 
-This project does not bypass platform access controls. Features that require accounts or institutional subscriptions still require credentials you are authorized to use.
+This project does not bypass platform access controls. Features requiring accounts or institutional subscriptions use your own authorized accounts or local credentials.
+
+## Multi-Platform Installation & Setup
+
+### 1. Codex
+
+- **Global / Project Skill Installation**:
+  ```bash
+  # Windows PowerShell
+  git clone https://github.com/bluessoul/scholar-impact-scraper.git "$HOME\.codex\skills\nature-impact"
+
+  # macOS / Linux
+  git clone https://github.com/bluessoul/scholar-impact-scraper.git ~/.codex/skills/nature-impact
+  ```
+  Or via `skills` CLI:
+  ```bash
+  npx skills add bluessoul/scholar-impact-scraper --global --agent codex --skill nature-impact --yes --copy
+  ```
+
+### 2. Claude Code
+
+- **Option A: Subagent Wrapper (Recommended)**
+  Create `~/.claude/agents/nature-impact.md`:
+  ```markdown
+  ---
+  name: nature-impact
+  description: Academic impact evaluation, Google Scholar / WoS citation scraping, JCR quartiles, and CV publication intake
+  ---
+  You are an academic data expert. Follow `SKILL.md` and `AGENTS.md` strictly to collect and format scholar impact data.
+  ```
+  Call in Claude Code: `Use nature-impact subagent to summarize scholar impact data`.
+
+- **Option B: Slash Command**
+  Create `~/.claude/commands/nature-impact.md` and invoke with `/nature-impact`.
+
+### 3. Antigravity (AGY)
+
+- Place under Antigravity plugins or builtin skills:
+  `~/.gemini/config/plugins/nature-skills/skills/nature-impact/` or `~/.gemini/antigravity/builtin/skills/nature-impact/`.
+- Antigravity automatically indexes `SKILL.md` and routes queries regarding scholar impact, citations, WoS, h-index, and JCR partitions.
+
+### 4. OpenClaw / QClaw
+
+- Place under `~/.openclaw/skills/nature-impact/`. Environment variables declared in `metadata.openclaw` will be prompted and managed securely.
+
+### 5. OpenCode & Hermes
+
+- Place under `~/.opencode/skills/nature-impact/` or `~/.hermes/skills/nature-impact/` for native skill discovery and automated pipeline integration.
+
 
 ## Typical Use Cases
 

@@ -1,8 +1,8 @@
 # Agent Instructions
 
-This repository is an agent-friendly release of `scholar-impact-scraper`.
+This repository is `nature-impact` (formerly `scholar-impact-scraper`), part of the Nature Skills academic tool suite.
 
-Use these instructions when working in Codex, Claude Code, OpenClaw/QClaw, Cloud Code, or any other coding agent environment.
+Use these instructions when working in Codex, Claude Code, Antigravity, OpenClaw, OpenCode, Hermes, or any other agentic environment.
 
 ## Project Purpose
 

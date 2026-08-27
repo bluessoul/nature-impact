@@ -1,23 +1,35 @@
-﻿English version: [README.en.md](README.en.md)
+English version: [README.en.md](README.en.md)
 
-# Scholar Impact Scraper 学术影响力抓取工具
+# Nature Impact — 学术影响力与成果治理技能包 (nature-impact)
+
+[![Install](https://img.shields.io/badge/install-Codex%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20OpenClaw%20%7C%20OpenCode%20%7C%20Hermes-111827)](#多平台接入与安装指南)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Nature Skills Family](https://img.shields.io/badge/ecosystem-Nature%20Skills-green.svg)](https://github.com/Yuan1z0825/nature-skills)
+
+> **`nature-impact`**（原 `scholar-impact-scraper`）是 **Nature Skills 学术工具生态** 中的学者学术影响力评估、期刊分区评价与代表作成果治理核心技能包。
 
 ## 它解决什么问题
 
-科研人员、研究助理和科研管理人员经常需要反复整理同一批信息：某位学者在 Google Scholar 的论文和引用、Web of Science 的引用与他引数据、ORCID 成果列表，以及期刊在 JCR 中的分区、排名和影响因子。这些信息分散在不同平台，复制粘贴耗时，也很容易漏项或格式不一致。
+科研人员、研究助理、学术带头人（PI）和科研管理人员经常需要反复整理同一批信息：
+- 某位学者在 **Google Scholar** 的论文、引用量、h-index、i10-index；
+- **Web of Science (WoS)** 的核心合集引用与他引数据；
+- **ORCID** 官方认证成果列表；
+- **Clarivate JCR** 期刊学科类别、影响因子（IF）、四分位分区（Q1-Q4）及排名；
+- **中科院期刊分区（CAS）** 升级版大类/小类分区与 Top 期刊判定；
+- 简历（CV）/申报表中论文成果的作者位次、第一作者/通讯作者判定、DOI 与卷期页码补全，以及按 **GB/T 7714-2025** 等最新国标导出参考文献。
 
-这个项目把这些重复工作整理成一套可由命令行或 Agentic IDE 协助运行的流程：你可以准备 Scholar ID、WoS ID、ORCID iD 或期刊列表，也可以直接提供简历、单位申请模板，或姓名+单位。工具会自动识别学者信息、判断需要整理的内容、提醒登录或验证码处理，并导出结果。它尤其适合做学者影响力初筛、简历/基金材料前的数据整理、期刊分区核查、论文列表补全，以及让 Codex、Claude Code、OpenClaw 等客户端接手半自动化科研数据任务。
+这些信息分散在不同平台，手工复制粘贴耗时且极易出错。**`nature-impact`** 把这些繁琐的数据工作封装为标准的 Agent 技能与命令行自动化流程，无缝适配 **Codex、Claude Code、Antigravity、OpenClaw、OpenCode、Hermes** 等主流 Coding Agent 平台。
 
-本项目不会绕过任何平台访问控制。需要账号或机构订阅的功能，仍然要求你使用自己有权访问的账号。
+本项目不会绕过任何平台访问控制。需要账号或机构订阅的功能，仍然要求你使用自己有权访问的账号或本地凭据。
 
 ## 典型使用场景
 
-- **简历/模板一键导入**：用户直接提供 `docx/pdf/txt/md` 简历、单位求职/申请模板，或只提供姓名+单位；`scholar_intake.py` 会自动识别学者信息、论文线索和填报要求，并生成可阅读、可继续处理的结果。
-- **基金申请和简历整理**：批量整理某位学者的论文、引用、作者顺序、通讯作者线索、DOI、卷期页码，并按 APA、MLA、Chicago、Harvard、LaTeX/BibTeX、AMA/Numeric、GB/T 7714 或 GB/T 7714-2025 导出参考文献，减少手工改格式的时间。
-- **学者影响力初筛**：快速汇总 Google Scholar 与 Web of Science 的引用指标，辅助评估候选人、合作对象、课题组成员或项目团队的科研产出。
-- **论文清单补全**：从 Google Scholar 列表页出发，打开详情页补全作者、期刊/会议、卷、期、页码、出版社、DOI 等字段；再用 OpenAlex 补全 DOI、完整作者、通讯作者、卷期页码和来源信息；仍缺失 DOI 时再用 Crossref 进行补充校验。
-- **期刊投稿和成果归档**：查询 JCR 分区、排名和影响因子，或把用户自己下载的多年份 JCR / 中科院分区本地数据作为参考，服务投稿选择、成果登记和年度统计。
-- **Agentic IDE 自动化任务**：让 Codex、Claude Code、OpenClaw 等客户端读取 `SKILL.md`/`AGENTS.md`，在本地凭据和浏览器会话范围内协助执行半自动化科研数据整理流程。
+- **简历/模板一键导入与消歧**：用户直接提供 `docx/pdf/txt/md` 简历、单位求职/申请模板，或仅提供“姓名+单位”；`scholar_intake.py` 自动提取学者画像、论文线索和填报要求，并智能识别作者加粗、下划线和通讯作者标记。
+- **基金申请与职称材料整理**：批量整理学者论文、引用、作者顺序、通讯作者线索、DOI、卷期页码，并按 APA、MLA、Chicago、Harvard、LaTeX/BibTeX、AMA、GB/T 7714 或最新的 **GB/T 7714-2025** 导出参考文献。
+- **学者影响力全景扫描**：快速汇总 Google Scholar 与 Web of Science 引用指标，辅助评估候选人、合作者或团队科研产出。
+- **论文清单元数据高精度补全**：结合 Google Scholar 详情页、OpenAlex API 与 Crossref 补全 DOI、完整作者列表、通讯作者、期刊/会议、卷期页码和出版社。
+- **期刊分区与影响因子核查**：查询 JCR 实时/本地分区及用户本地中科院分区数据，支持投稿选刊与成果归档。
+- **与 Nature-Skills 生态联动**：产出的成果列表与影响力数据可直接对接 `nature-writing`、`nature-citation` 和 `nature-paper2ppt`，实现从成果治理到顶刊写作与答辩 PPT 生成的完整闭环。
 
 ## 最近更新
 
@@ -36,57 +48,96 @@
 - 默认 Scholar 抓取流程优先使用 Google Scholar 详情页 DOI，再用 OpenAlex 补 DOI、作者、通讯作者、卷期页码、来源和出版社，最后才对仍缺 DOI 的记录使用 Crossref。
 - 用户仍可用 `--no-fetch-doi --no-openalex-enrich --no-fetch-corresponding` 关闭增强，做纯 Google Scholar 快速抓取。
 
-## 这是什么
+## 多平台接入与安装指南
 
-Scholar Impact Scraper 是一个面向 QClaw/OpenClaw、Codex、Claude Code、Cloud Code 以及其他 Agentic IDE 的学术影响力抓取工具仓库。它也可以作为普通命令行项目使用。
+`nature-impact` 遵循标准的 Agent Skill 规范，可无缝接入各种 AI 编码助手与智能体环境：
 
-它目前包含：
+### 1. Codex 接入
 
-- 简历/模板一键导入：从 `docx/pdf/txt/md` 简历、单位申请模板，或姓名+单位自动识别学者信息、论文线索和填报要求，并生成可阅读、可继续处理的结果。
-- Google Scholar 论文列表和引用数据抓取。
-- OpenAlex 结构化元数据增强，用于补全 DOI、作者列表、通讯作者、期刊/来源、出版社、卷、期和页码。
-- Web of Science 引用数据查询，前提是用户拥有合法访问权限。
-- ORCID Public API 论文成果提取。
-- Clarivate JCR 期刊学科类别、分区、排名和影响因子提取。
-- 用户本地中科院期刊分区文件查询，支持 CSV、TSV 和 JSON。
+- **全局/项目技能安装**：
+  将本仓库克隆或复制到 Codex 技能目录：
+  ```bash
+  # Windows PowerShell
+  git clone https://github.com/bluessoul/scholar-impact-scraper.git "$HOME\.codex\skills\nature-impact"
 
-## 开始之前
+  # macOS / Linux
+  git clone https://github.com/bluessoul/scholar-impact-scraper.git ~/.codex/skills/nature-impact
+  ```
+  或者如果已配置 `skills` CLI：
+  ```bash
+  npx skills add bluessoul/scholar-impact-scraper --global --agent codex --skill nature-impact --yes --copy
+  ```
+- **使用体验**：在 Codex 中直接输入自然语言，例如：
+  > “从简历 `cv.docx` 中提取成果并整理近 5 年发表记录，导出 GB/T 7714-2025 格式”
+  > “查询论文《Attention Is All You Need》作者在 Google Scholar 的引用与 h-index”
 
-请先确认你已经安装：
+---
 
-- Python 3.10 或更新版本。
-- Node.js 18 或更新版本，包含 `npm`。
-- Git。
-- 可以正常打开浏览器的桌面环境，因为 Playwright 可能需要弹出浏览器完成登录或验证。
+### 2. Claude Code 接入
 
-你不一定需要配置所有账号。只使用哪个功能，就配置哪个功能需要的凭据：
+Claude Code 支持通过 **Subagent** 或 **Slash Command** 封装调用本技能：
 
-- ORCID：需要 ORCID Public API Client ID 和 Client Secret。
-- OpenAlex：可以匿名使用；如有 API key，可通过 `OPENALEX_API_KEY` 或 `--openalex-api-key` 配置，以便更稳定地使用 API。
-- Google Scholar：通常不需要账号，但可能触发验证码或访问限制。
-- Web of Science：需要你自己拥有合法的机构订阅或个人访问权限。
-- Clarivate JCR：需要你自己拥有合法的 Clarivate/JCR 访问权限。
+- **方式 A：Subagent Wrapper（推荐）**
+  创建 `~/.claude/agents/nature-impact.md`：
+  ```markdown
+  ---
+  name: nature-impact
+  description: 学术影响力评估、Google Scholar/WoS 引用抓取、JCR 分区与成果简历治理
+  ---
+  你是一个学术数据专家。请严格按照项目内的 `SKILL.md` 和 `AGENTS.md` 执行学者成果与影响力分析。
+  执行前先确认年份范围与学者消歧信息，并在本地生成 CSV 和格式化引用。
+  ```
+  在 Claude Code 中直接呼叫：`使用 nature-impact 子代理帮我整理学者影响力数据`。
 
-## 安全规则
+- **方式 B：Slash Command 快捷指令**
+  创建 `~/.claude/commands/nature-impact.md`：
+  ```markdown
+  请读取当前工作区或 `~/.codex/skills/nature-impact/SKILL.md`，执行学术成果盘点或 JCR 分区查询任务。
+  ```
+  在终端中直接输入 `/nature-impact` 触发。
 
-不要提交、上传、粘贴或公开以下内容：
+- **方式 C：工作区原生运行**
+  直接在包含本项目的目录中运行 `claude`，Claude Code 会自动加载 [`CLAUDE.md`](CLAUDE.md) 和 [`SKILL.md`](SKILL.md)。
 
-- `.env`
-- `.env.*`，除了 `.env.example`
-- `config.json`
-- `.playwright_profile/`
-- 浏览器缓存
-- 截图
-- 抓取下来的 HTML 页面
-- 生成的 CSV、JSON、Markdown 和日志文件
+---
 
-`.playwright_profile/` 可能包含 cookie、登录状态和机构访问痕迹，请把它当作秘密文件处理。
+### 3. Antigravity (AGY) 接入
 
-如果你曾经把真实账号、密码、token 或 cookie 提交到了 Git 历史里，仅删除文件是不够的。请先轮换或撤销凭据，再清理 Git 历史。
+- **作为独立技能或 Nature-Skills 插件集成**：
+  - 复制到 Antigravity 插件目录：
+    `~/.gemini/config/plugins/nature-skills/skills/nature-impact/`
+  - 或放置在 Antigravity 自定义技能目录：
+    `~/.gemini/antigravity/builtin/skills/nature-impact/`
+- **使用体验**：Antigravity Agent 会自动索引 `SKILL.md`，并在用户询问“学术影响力、WoS 他引、H 指数、JCR 分区、中科院分区、简历成果提取”时自动触发调用。
 
-## 安装环境
+---
 
-Windows:
+### 4. OpenClaw / QClaw 接入
+
+- 放置在 `~/.openclaw/skills/nature-impact/`。
+- 本仓库已在 `SKILL.md` 中声明 `metadata.openclaw` 所需的环境变量（`ORCID_CLIENT_ID`、`CLARIVATE_EMAIL` 等），OpenClaw 会自动引导配置本地环境变量并按沙箱安全策略执行。
+
+---
+
+### 5. OpenCode 接入
+
+- 将本仓库放置于 `~/.opencode/skills/nature-impact/`。
+- 在 OpenCode 会话中直接通过指令或 `@nature-impact` 呼叫学者分析与期刊查询工作流。
+
+---
+
+### 6. Hermes Agent 接入
+
+- 放置于 `~/.hermes/skills/nature-impact/`。
+- Hermes Agent 会自动识别并加载路由协议，支持在自动化 Research 流水线中作为数据初筛与分区核查节点。
+
+---
+
+## 运行环境依赖安装
+
+无论使用哪个平台，底层均需要 Python 与 Node.js 基础运行环境：
+
+Windows (PowerShell):
 
 ```powershell
 python -m venv .venv
@@ -95,7 +146,7 @@ python -m venv .venv
 npm install
 ```
 
-macOS/Linux:
+macOS / Linux:
 
 ```bash
 python3 -m venv .venv

@@ -1,8 +1,12 @@
 {
-  "name": "scholar-impact-scraper",
-  "version": "1.0.0",
-  "description": "Scholar impact and JCR data extraction toolkit using Python and Playwright.",
+  "name": "nature-impact",
+  "version": "2.0.0",
+  "description": "Academic impact evaluation, scholar citation metrics, JCR/CAS journal partition lookup, and publication intake toolkit.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bluessoul/scholar-impact-scraper"
+  },
   "main": "scripts/fetch.js",
   "scripts": {
     "fetch": "node scripts/fetch.js"
@@ -13,3 +17,4 @@
     "puppeteer-extra-plugin-stealth": "^2.11.2"
   }
 }
+
