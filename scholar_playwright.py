@@ -1164,473 +1164,461 @@ async def scrape_wos_citations(orcid_id: str, page, fetch_wos_ut: bool = False) 
         "sum_cited_without_self": wos_sum_cited_without_self
     }
 
-async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: int, refine_mode: str = "auto", refine_limit: int = 10, fetch_doi: bool = True, wos_id: str = None, fetch_wos_ut: bool = False, citation_format: str = "ask", target_author: str = "", target_author_position: int = 0, author_highlight: str = "bold", corresponding_author: str = "", corresponding_author_position: int = 0, fetch_corresponding: bool = True, openalex_enrich: bool = True, openalex_api_key: str = "", openalex_max_records: int = 0, openalex_min_confidence: float = 0.82, output_sort: str = "citations") -> None:
+from intake.scholar_http_client import ScholarHttpClient, extract_scholar_user_id
+
+async def scrape_scholar_profile(
+    profile_url: str,
+    output_csv: str,
+    max_clicks: int,
+    refine_mode: str = "auto",
+    refine_limit: int = 10,
+    fetch_doi: bool = True,
+    wos_id: str = None,
+    fetch_wos_ut: bool = False,
+    citation_format: str = "ask",
+    target_author: str = "",
+    target_author_position: int = 0,
+    author_highlight: str = "bold",
+    corresponding_author: str = "",
+    corresponding_author_position: int = 0,
+    fetch_corresponding: bool = True,
+    openalex_enrich: bool = True,
+    openalex_api_key: str = "",
+    openalex_max_records: int = 0,
+    openalex_min_confidence: float = 0.82,
+    output_sort: str = "citations",
+    use_fastpath: bool = True,
+    force_browser: bool = False,
+) -> None:
     """
-    Launches a non-headless Playwright Chromium instance, navigates to the Scholar profile,
-    handles dynamic pagination with "Show more", pauses for manual CAPTCHA solving,
-    extracts complete publication metadata (including optional deep modal refinement),
-    and saves sorted CSVs, integrating Web of Science citation counts and Accession Numbers.
+    Hybrid Scholar Extractor:
+    1. Tries the ultra-fast protocol HTTP client first (cstart=0&pagesize=100) in ~1 second.
+    2. Seamlessly falls back to human-emulating Playwright Chromium browser if CAPTCHA or blocks are met.
     """
-    logger.info("Initializing Playwright Async Engine...")
-    
-    async with async_playwright() as p:
-        # Define a persistent user data directory inside the workspace
-        user_data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".playwright_profile"))
-        remind_first_run_login_setup(user_data_dir, uses_wos=bool(wos_id))
-        logger.info(f"Launching visible Chromium with persistent profile: {user_data_dir}...")
-        
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir,
-            headless=False,
-            viewport={"width": 1280, "height": 800},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            args=["--start-maximized"]
+    user_id = extract_scholar_user_id(profile_url)
+    extracted_data = []
+    scholar_citations = "N/A"
+    scholar_h_index = "N/A"
+    fastpath_succeeded = False
+
+    # ==========================================
+    # Fast-Path Protocol Extraction (HTTP)
+    # ==========================================
+    if use_fastpath and not force_browser and user_id:
+        logger.info(f"[Fast-Path] Attempting direct HTTP protocol fetch for scholar: {user_id}...")
+        http_client = ScholarHttpClient()
+        max_recs = (max_clicks + 1) * 20 if max_clicks > 0 else 0
+        profile, is_blocked = http_client.fetch_all_profile_records_fast(
+            user_id, max_records=max_recs, sort_by=output_sort
         )
-        
-        # Get already opened page or open a new one
-        pages = context.pages
-        page = pages[0] if pages else await context.new_page()
-        
-        logger.info(f"Navigating to Scholar Profile: {profile_url}...")
-        try:
-            await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
-        except Exception as e:
-            logger.warning(f"Initial navigation warning (timeout/other): {e}. Proceeding anyway...")
-        
-        # Check for CAPTCHA immediately upon loading
-        await handle_captcha_if_needed(page)
-        
-        # Click reject cookies if the consent dialog appears to clean the viewport
-        try:
-            reject_cookies = page.locator("button:has-text('Reject Unnecessary Cookies')")
-            if await reject_cookies.is_visible():
-                await reject_cookies.click()
-                logger.info("Cookie consent dialog dismissed.")
-        except Exception:
-            pass
+        if profile and not is_blocked and profile.publications:
+            logger.info(f"[Fast-Path] Succeeded! Extracted {len(profile.publications)} records via HTTP protocol.")
+            scholar_citations = profile.total_citations
+            scholar_h_index = profile.h_index
+
+            # Build extracted_data dictionary with all required schema fields
+            for pub in profile.publications:
+                extracted_data.append({
+                    "Title": pub.get("Title", "N/A"),
+                    "Authors": pub.get("Authors", "N/A"),
+                    "Journal/Venue": pub.get("Journal/Venue", "N/A"),
+                    "Citations": pub.get("Citations", 0),
+                    "WoS Citations": "N/A",
+                    "Year": pub.get("Year", "N/A"),
+                    "Publication Date": pub.get("Year", "N/A"),
+                    "Journal": "N/A",
+                    "Conference": "N/A",
+                    "Volume": "N/A",
+                    "Issue": "N/A",
+                    "Pages": "N/A",
+                    "Publisher": "N/A",
+                    "Description": "N/A",
+                    "DOI": "N/A",
+                    "DOI Source": "N/A",
+                    "DOI Confidence": "none",
+                    "DOI Evidence JSON": "{}",
+                    "OpenAlex ID": "N/A",
+                    "OpenAlex DOI": "N/A",
+                    "OpenAlex Match Confidence": "none",
+                    "OpenAlex Match Method": "N/A",
+                    "OpenAlex Authors": "N/A",
+                    "OpenAlex Author Count": "N/A",
+                    "OpenAlex Corresponding Authors": "N/A",
+                    "OpenAlex Corresponding Author Positions": "N/A",
+                    "OpenAlex Source": "N/A",
+                    "OpenAlex Publisher": "N/A",
+                    "OpenAlex Volume": "N/A",
+                    "OpenAlex Issue": "N/A",
+                    "OpenAlex Pages": "N/A",
+                    "OpenAlex Evidence JSON": "{}",
+                    "Metadata Enrichment Source": "N/A",
+                    "Metadata Enrichment Confidence": "none",
+                    "Scholar Detail Fields JSON": "{}",
+                    "Target Author Query": "N/A",
+                    "Target Author Position": "N/A",
+                    "Target Author Matched Name": "N/A",
+                    "Highlighted Authors": pub.get("Authors", "N/A"),
+                    "Corresponding Author Query": "N/A",
+                    "Corresponding Author Position": "N/A",
+                    "Corresponding Author Matched Name": "N/A",
+                    "Is Target Author Corresponding": "N/A",
+                    "Highlighted Corresponding Authors": pub.get("Authors", "N/A"),
+                    "Corresponding Evidence Source": "N/A",
+                    "Corresponding Confidence": "none",
+                    "Corresponding Evidence JSON": "{}",
+                    "Scholar Author Citations": scholar_citations,
+                    "Scholar Author H-Index": scholar_h_index,
+                    "WoS Author Citations": "N/A",
+                    "WoS Author Citations (Non-Self)": "N/A",
+                    "WoS Author H-Index": "N/A",
+                    "Scholar Article ID": pub.get("Scholar Article ID", ""),
+                })
+
+            # Fast Refinement: direct view_citation HTTP fetching without opening browser modals
+            refine_indices = []
+            if refine_mode == "auto":
+                for idx, data in enumerate(extracted_data):
+                    if fetch_doi or "..." in data["Authors"]:
+                        refine_indices.append(idx)
+            elif refine_mode == "all":
+                refine_indices = list(range(len(extracted_data)))
+            elif refine_mode != "none":
+                try:
+                    parts = [int(p.strip()) - 1 for p in refine_mode.split(",") if p.strip().isdigit()]
+                    refine_indices = [p for p in parts if 0 <= p < len(extracted_data)]
+                except Exception:
+                    pass
+
+            to_refine = refine_indices[:refine_limit]
+            if to_refine:
+                logger.info(f"[Fast-Path] Refining {len(to_refine)} papers via direct view_citation endpoint...")
+                for idx in to_refine:
+                    art_id = extracted_data[idx].get("Scholar Article ID")
+                    if art_id:
+                        fields = http_client.fetch_citation_details_fast(user_id, art_id)
+                        if fields:
+                            extracted_data[idx]["Scholar Detail Fields JSON"] = json.dumps(fields, ensure_ascii=False)
+                            doi_ev = extract_doi_from_scholar_details(fields)
+                            if doi_ev.get("doi") and doi_ev["doi"] != "N/A":
+                                extracted_data[idx]["DOI"] = doi_ev["doi"]
+                                extracted_data[idx]["DOI Source"] = doi_ev["source"]
+                                extracted_data[idx]["DOI Confidence"] = doi_ev["confidence"]
+                                extracted_data[idx]["DOI Evidence JSON"] = json.dumps(doi_ev.get("evidence", {}), ensure_ascii=False)
+                            for f_name, f_val in fields.items():
+                                k_low = f_name.lower()
+                                if "journal" in k_low:
+                                    extracted_data[idx]["Journal"] = f_val
+                                    set_if_missing(extracted_data[idx], "Journal/Venue", f_val)
+                                elif "volume" in k_low:
+                                    extracted_data[idx]["Volume"] = f_val
+                                elif "issue" in k_low or "number" in k_low:
+                                    extracted_data[idx]["Issue"] = f_val
+                                elif "pages" in k_low:
+                                    extracted_data[idx]["Pages"] = f_val
+                                elif "publisher" in k_low:
+                                    extracted_data[idx]["Publisher"] = f_val
+                                elif "description" in k_low:
+                                    extracted_data[idx]["Description"] = f_val
+                                elif "authors" in k_low and "..." in extracted_data[idx].get("Authors", ""):
+                                    extracted_data[idx]["Authors"] = f_val
+
+            fastpath_succeeded = True
+
+            # If Web of Science was requested, launch lightweight browser only for WoS
+            if wos_id:
+                logger.info("Initializing Web of Science extraction for Fast-Path results...")
+                async with async_playwright() as p:
+                    user_data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".playwright_profile"))
+                    context = await p.chromium.launch_persistent_context(
+                        user_data_dir, headless=False, viewport={"width": 1280, "height": 800}
+                    )
+                    page = context.pages[0] if context.pages else await context.new_page()
+                    try:
+                        wos_res = await scrape_wos_citations(wos_id, page, fetch_wos_ut=fetch_wos_ut)
+                        wos_citations_map = wos_res.get("citations_map", {})
+                        wos_sum_cited = wos_res.get("sum_cited", "N/A")
+                        wos_sum_cited_without_self = wos_res.get("sum_cited_without_self", "N/A")
+                        wos_h_index = wos_res.get("h_index", "N/A")
+                        for idx, data in enumerate(extracted_data):
+                            title = data["Title"]
+                            norm_title = re.sub(r'[^a-z0-9]', '', title.lower())
+                            wos_info = wos_citations_map.get(norm_title, {"citations": "N/A", "accession_number": "N/A"})
+                            extracted_data[idx]["WoS Citations"] = wos_info.get("citations", "N/A")
+                            extracted_data[idx]["WoS Author Citations"] = wos_sum_cited
+                            extracted_data[idx]["WoS Author Citations (Non-Self)"] = wos_sum_cited_without_self
+                            extracted_data[idx]["WoS Author H-Index"] = wos_h_index
+                            if fetch_wos_ut:
+                                extracted_data[idx]["WoS Accession Number"] = wos_info.get("accession_number", "N/A")
+                    finally:
+                        await context.close()
+        else:
+            logger.warning("[Fast-Path] Encountered CAPTCHA/block or zero records. Falling back to Playwright browser automation...")
+
+    # ==========================================
+    # Slow-Track Playwright Browser Flow (Fallback / Forced)
+    # ==========================================
+    if not fastpath_succeeded:
+        logger.info("Initializing Playwright Async Engine (Browser Track)...")
+        async with async_playwright() as p:
+            # Define a persistent user data directory inside the workspace
+            user_data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".playwright_profile"))
+            remind_first_run_login_setup(user_data_dir, uses_wos=bool(wos_id))
+            logger.info(f"Launching visible Chromium with persistent profile: {user_data_dir}...")
             
-        show_more_selector = "#gsc_bpf_more"
-        
-        # ==========================================
-        # Dynamic Pagination Loop ("Show more")
-        # ==========================================
-        # Enhanced pagination loop with human‑like evasion tactics
-        click_count = 0  # Track number of "Show more" clicks
-        while True:
-            if click_count >= max_clicks:
-                logger.info(f"Reached maximum of {max_clicks} 'Show more' clicks; stopping pagination.")
-                break
-
-            # Check for CAPTCHA before each interaction
-            await handle_captcha_if_needed(page)
-
-            show_more_button = page.locator(show_more_selector)
-
-            # Verify button presence
-            if await show_more_button.count() == 0:
-                logger.info("Show more button is no longer present. Reached the end of the profile.")
-                break
-
-            # Verify button enabled state
-            if await show_more_button.get_attribute("disabled") is not None:
-                logger.info("Show more button is disabled. All publications are successfully expanded.")
-                break
-
-            # Human‑like delay using Gaussian distribution (mean 4.5s, sigma 1.2s)
-            raw_delay = random.gauss(4.5, 1.2)
-            delay = max(2.0, min(8.0, raw_delay))  # clamp between 2‑8 seconds
-            logger.info(f"Human‑like pacing delay: waiting {delay:.2f}s before click #{click_count + 1}.")
-            await asyncio.sleep(delay)
-
-            # Capture current row count for later comparison
-            initial_row_count = await page.locator("tr.gsc_a_tr").count()
-
-            # Ensure button is in view
-            await show_more_button.scroll_into_view_if_needed()
-
-            # Randomized click within button's bounding box
-            bbox = await show_more_button.bounding_box()
-            if bbox is None:
-                logger.warning("Unable to obtain button bounding box; falling back to default click.")
-                await show_more_button.click(timeout=10000)
-            else:
-                # Choose a random point inside the box, avoiding edges (5% margin)
-                margin_x = bbox["width"] * 0.05
-                margin_y = bbox["height"] * 0.05
-                x_offset = random.uniform(margin_x, bbox["width"] - margin_x)
-                y_offset = random.uniform(margin_y, bbox["height"] - margin_y)
-                click_x = bbox["x"] + x_offset
-                click_y = bbox["y"] + y_offset
-                logger.info(f"Moving mouse to ({click_x:.1f}, {click_y:.1f}) and clicking within button.")
-                # Human‑like mouse movement (smooth steps)
-                await page.mouse.move(click_x, click_y, steps=30)
-                await page.mouse.click(click_x, click_y)
-                logger.info("Clicked 'Show more' button.")
-
-            click_count += 1
-
-            # Stop if reached max clicks limit
-            if click_count >= max_clicks:
-                logger.info(f"Reached maximum of {max_clicks} 'Show more' clicks; stopping pagination.")
-                break
-
-            # Random micro‑scrolling with 25‑30% probability after a click
-            if random.random() < 0.27:
-                scroll_amount = random.randint(100, 300)
-                logger.info(f"Performing micro‑scroll of {scroll_amount}px to mimic reading behavior.")
-                await page.mouse.wheel(0, scroll_amount)
-                await asyncio.sleep(random.uniform(0.5, 1.5))
-
-            # Periodic "reading" pause every 5‑7 clicks
-            pause_interval = random.randint(5, 7)
-            if click_count % pause_interval == 0:
-                read_pause = max(6.0, random.gauss(12.0, 3.0))
-                logger.info(f"Simulated reading pause after {click_count} clicks: waiting {read_pause:.2f}s.")
-                await asyncio.sleep(read_pause)
-
-            # Wait for new rows to load (max ~5 seconds)
-            rows_loaded = False
-            for _ in range(25):
-                await asyncio.sleep(0.2)
-                await handle_captcha_if_needed(page)
-                new_row_count = await page.locator("tr.gsc_a_tr").count()
-                if new_row_count > initial_row_count:
-                    logger.info(f"Loaded new rows. Row count increased from {initial_row_count} to {new_row_count}.")
-                    rows_loaded = True
-                    break
-
-            if not rows_loaded:
-                logger.info("No new rows detected after click. Checking if we reached the end...")
-                if await show_more_button.count() == 0 or await show_more_button.get_attribute("disabled") is not None:
-                    break
-                    
-        # ==========================================
-        # Publication Data Extraction
-        # ==========================================
-        logger.info("All publications expanded. Beginning data extraction...")
-
-        # Extract Google Scholar author stats
-        scholar_citations = "N/A"
-        scholar_h_index = "N/A"
-        try:
-            logger.info("Extracting Google Scholar author-level metrics...")
-            rows_stats = await page.locator("tr:has(.gsc_rsb_f)").all()
-            for r in rows_stats:
-                label_el = r.locator(".gsc_rsb_f")
-                val_els = r.locator("td.gsc_rsb_std")
-                if await label_el.count() > 0 and await val_els.count() > 0:
-                    label = (await label_el.nth(0).inner_text()).strip().lower()
-                    val_all = (await val_els.nth(0).inner_text()).strip()
-                    if "citations" in label:
-                        scholar_citations = val_all
-                    elif "h-index" in label:
-                        scholar_h_index = val_all
-            logger.info(f"Google Scholar Metrics: Citations={scholar_citations}, H-Index={scholar_h_index}")
-        except Exception as e:
-            logger.warning(f"Failed to extract Google Scholar author stats: {e}")
-        
-        rows = await page.locator("tr.gsc_a_tr").all()
-        total_rows = len(rows)
-        logger.info(f"Total publication rows identified: {total_rows}")
-        
-        extracted_data = []
-        
-        for idx, row in enumerate(rows, 1):
-            title = "N/A"
-            authors = "N/A"
-            venue = "N/A"
-            citations = 0
-            year = "N/A"
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir,
+                headless=False,
+                viewport={"width": 1280, "height": 800},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                args=["--start-maximized"]
+            )
             
+            # Get already opened page or open a new one
+            pages = context.pages
+            page = pages[0] if pages else await context.new_page()
+            
+            logger.info(f"Navigating to Scholar Profile: {profile_url}...")
             try:
-                # 1. Extract Title
-                title_loc = row.locator(".gsc_a_t a")
-                if await title_loc.count() > 0:
-                    title = (await title_loc.inner_text()).strip()
-                    
-                # 2. Extract Authors (first .gs_gray inside .gsc_a_t)
-                gray_locs = row.locator(".gsc_a_t .gs_gray")
-                if await gray_locs.count() > 0:
-                    authors = (await gray_locs.nth(0).inner_text()).strip()
-                    
-                # 3. Extract Venue/Journal (second .gs_gray inside .gsc_a_t)
-                if await gray_locs.count() > 1:
-                    venue = (await gray_locs.nth(1).inner_text()).strip()
-                    
-                # 4. Extract Citations (.gsc_a_c a)
-                citations_loc = row.locator(".gsc_a_c a")
-                if await citations_loc.count() > 0:
-                    cit_text = (await citations_loc.inner_text()).strip()
-                    if cit_text:
-                        # Clean and convert citations to integer
-                        try:
-                            # Replace any non-digit character like "*" or ","
+                await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
+            except Exception as e:
+                logger.warning(f"Initial navigation warning (timeout/other): {e}. Proceeding anyway...")
+            
+            # Check for CAPTCHA immediately upon loading
+            await handle_captcha_if_needed(page)
+            
+            # Click reject cookies if the consent dialog appears to clean the viewport
+            try:
+                reject_cookies = page.locator("button:has-text('Reject Unnecessary Cookies')")
+                if await reject_cookies.is_visible():
+                    await reject_cookies.click()
+                    logger.info("Cookie consent dialog dismissed.")
+            except Exception:
+                pass
+                
+            show_more_selector = "#gsc_bpf_more"
+            
+            # Dynamic Pagination Loop ("Show more")
+            click_count = 0
+            while True:
+                if click_count >= max_clicks:
+                    logger.info(f"Reached maximum of {max_clicks} 'Show more' clicks; stopping pagination.")
+                    break
+
+                await handle_captcha_if_needed(page)
+                show_more_button = page.locator(show_more_selector)
+
+                if await show_more_button.count() == 0 or await show_more_button.get_attribute("disabled") is not None:
+                    logger.info("Show more button is no longer active. Reached the end of the profile.")
+                    break
+
+                raw_delay = random.gauss(4.5, 1.2)
+                delay = max(2.0, min(8.0, raw_delay))
+                logger.info(f"Human-like pacing delay: waiting {delay:.2f}s before click #{click_count + 1}.")
+                await asyncio.sleep(delay)
+
+                initial_row_count = await page.locator("tr.gsc_a_tr").count()
+                await show_more_button.scroll_into_view_if_needed()
+
+                bbox = await show_more_button.bounding_box()
+                if bbox is None:
+                    await show_more_button.click(timeout=10000)
+                else:
+                    margin_x = bbox["width"] * 0.05
+                    margin_y = bbox["height"] * 0.05
+                    click_x = bbox["x"] + random.uniform(margin_x, bbox["width"] - margin_x)
+                    click_y = bbox["y"] + random.uniform(margin_y, bbox["height"] - margin_y)
+                    await page.mouse.move(click_x, click_y, steps=30)
+                    await page.mouse.click(click_x, click_y)
+
+                click_count += 1
+                if click_count >= max_clicks:
+                    break
+
+                rows_loaded = False
+                for _ in range(25):
+                    await asyncio.sleep(0.2)
+                    await handle_captcha_if_needed(page)
+                    new_row_count = await page.locator("tr.gsc_a_tr").count()
+                    if new_row_count > initial_row_count:
+                        rows_loaded = True
+                        break
+
+                if not rows_loaded and (await show_more_button.count() == 0 or await show_more_button.get_attribute("disabled") is not None):
+                    break
+
+            logger.info("All publications expanded. Beginning data extraction...")
+            try:
+                rows_stats = await page.locator("tr:has(.gsc_rsb_f)").all()
+                for r in rows_stats:
+                    label_el = r.locator(".gsc_rsb_f")
+                    val_els = r.locator("td.gsc_rsb_std")
+                    if await label_el.count() > 0 and await val_els.count() > 0:
+                        label = (await label_el.nth(0).inner_text()).strip().lower()
+                        val_all = (await val_els.nth(0).inner_text()).strip()
+                        if "citations" in label:
+                            scholar_citations = val_all
+                        elif "h-index" in label:
+                            scholar_h_index = val_all
+            except Exception as e:
+                logger.warning(f"Failed to extract Google Scholar author stats: {e}")
+
+            rows = await page.locator("tr.gsc_a_tr").all()
+            logger.info(f"Total publication rows identified: {len(rows)}")
+
+            for idx, row in enumerate(rows, 1):
+                title = "N/A"
+                authors = "N/A"
+                venue = "N/A"
+                citations = 0
+                year = "N/A"
+                try:
+                    title_loc = row.locator(".gsc_a_at")
+                    if await title_loc.count() > 0:
+                        title = (await title_loc.inner_text()).strip()
+                    gray_locs = row.locator(".gsc_a_t .gs_gray")
+                    if await gray_locs.count() > 0:
+                        authors = (await gray_locs.nth(0).inner_text()).strip()
+                    if await gray_locs.count() > 1:
+                        venue = (await gray_locs.nth(1).inner_text()).strip()
+                    citations_loc = row.locator(".gsc_a_c a")
+                    if await citations_loc.count() > 0:
+                        cit_text = (await citations_loc.inner_text()).strip()
+                        if cit_text:
                             clean_cit = re.sub(r'\D', '', cit_text)
                             citations = int(clean_cit) if clean_cit else 0
-                        except ValueError:
-                            citations = 0
-                            
-                # 5. Extract Year (.gsc_a_y span)
-                year_loc = row.locator(".gsc_a_y span")
-                if await year_loc.count() > 0:
-                    year = (await year_loc.inner_text()).strip()
-                else:
-                    # Fallback to direct .gsc_a_y if span is absent
-                    year_loc_direct = row.locator(".gsc_a_y")
-                    if await year_loc_direct.count() > 0:
-                        year = (await year_loc_direct.inner_text()).strip()
-                        
-            except Exception as e:
-                logger.error(f"Row {idx}: Failed to extract columns cleanly: {e}")
-                
-            extracted_data.append({
-                "Title": title,
-                "Authors": authors,
-                "Journal/Venue": venue,
-                "Citations": citations,
-                "WoS Citations": "N/A",  # Default to N/A
-                "Year": year,
-                "Publication Date": year,  # Default to Year
-                "Journal": "N/A",
-                "Conference": "N/A",
-                "Volume": "N/A",
-                "Issue": "N/A",
-                "Pages": "N/A",
-                "Publisher": "N/A",
-                "Description": "N/A",
-                "DOI": "N/A",  # Default to N/A
-                "DOI Source": "N/A",
-                "DOI Confidence": "none",
-                "DOI Evidence JSON": "{}",
-                "OpenAlex ID": "N/A",
-                "OpenAlex DOI": "N/A",
-                "OpenAlex Match Confidence": "none",
-                "OpenAlex Match Method": "N/A",
-                "OpenAlex Authors": "N/A",
-                "OpenAlex Author Count": "N/A",
-                "OpenAlex Corresponding Authors": "N/A",
-                "OpenAlex Corresponding Author Positions": "N/A",
-                "OpenAlex Source": "N/A",
-                "OpenAlex Publisher": "N/A",
-                "OpenAlex Volume": "N/A",
-                "OpenAlex Issue": "N/A",
-                "OpenAlex Pages": "N/A",
-                "OpenAlex Evidence JSON": "{}",
-                "Metadata Enrichment Source": "N/A",
-                "Metadata Enrichment Confidence": "none",
-                "Scholar Detail Fields JSON": "{}",
-                "Target Author Query": "N/A",
-                "Target Author Position": "N/A",
-                "Target Author Matched Name": "N/A",
-                "Highlighted Authors": authors,
-                "Corresponding Author Query": "N/A",
-                "Corresponding Author Position": "N/A",
-                "Corresponding Author Matched Name": "N/A",
-                "Is Target Author Corresponding": "N/A",
-                "Highlighted Corresponding Authors": authors,
-                "Corresponding Evidence Source": "N/A",
-                "Corresponding Confidence": "none",
-                "Corresponding Evidence JSON": "{}",
-                "Scholar Author Citations": scholar_citations,
-                "Scholar Author H-Index": scholar_h_index,
-                "WoS Author Citations": "N/A",
-                "WoS Author Citations (Non-Self)": "N/A",
-                "WoS Author H-Index": "N/A"
-            })
-
-
-        # ==========================================
-        # Secondary Refinement ("Refined Crawl")
-        # ==========================================
-        refine_indices = []
-        if refine_mode == "auto":
-            # Auto-detect papers that need detail-panel refinement.
-            # DOI resolution uses Scholar detail panels first, then Crossref for records still missing DOI.
-            for idx, data in enumerate(extracted_data):
-                if fetch_doi or "..." in data["Authors"]:
-                    refine_indices.append(idx)
-            if fetch_doi:
-                logger.info(f"Auto-selected {len(refine_indices)} papers for Scholar detail DOI/metadata refinement before Crossref fallback.")
-            else:
-                logger.info(f"Auto-detected {len(refine_indices)} papers with truncated author lists for refinement.")
-        elif refine_mode == "all":
-            refine_indices = list(range(len(extracted_data)))
-            logger.info(f"Selected all {len(refine_indices)} papers for refinement.")
-        elif refine_mode != "none":
-            # Parse comma-separated list of 1-based indices
-            try:
-                parts = [int(p.strip()) - 1 for p in refine_mode.split(",") if p.strip().isdigit()]
-                refine_indices = [p for p in parts if 0 <= p < len(extracted_data)]
-                logger.info(f"Parsed manual refinement indices: {[p + 1 for p in refine_indices]}")
-            except Exception as e:
-                logger.error(f"Failed to parse refine indices '{refine_mode}': {e}")
-
-        # Limit refinement to avoid anti-bot blocks
-        if refine_indices:
-            refined_count = 0
-            to_refine = refine_indices[:refine_limit]
-            logger.info(f"Refining top {len(to_refine)} selected papers (limited by --refine-limit={refine_limit}) to evade bot detection...")
-
-            for idx in to_refine:
-                paper = extracted_data[idx]
-                logger.info(f"[{refined_count + 1}/{len(to_refine)}] Refining paper #{idx + 1}: '{paper['Title']}'")
-
-                try:
-                    # Check for CAPTCHA before clicking
-                    await handle_captcha_if_needed(page)
-
-                    # Locate the paper's title link. The link has index `idx` in the table rows
-                    title_locator = page.locator("tr.gsc_a_tr a.gsc_a_at").nth(idx)
-                    if await title_locator.count() == 0:
-                        logger.warning(f"Could not locate title link in DOM for paper #{idx + 1}; skipping.")
-                        continue
-
-                    # Scroll link into view
-                    await title_locator.scroll_into_view_if_needed()
-
-                    # Human-like delay before click (Gaussian, mean 4.0s, sigma 1.0s)
-                    raw_delay = random.gauss(4.0, 1.0)
-                    delay = max(1.5, min(7.0, raw_delay))
-                    logger.info(f"Waiting {delay:.2f}s before opening details...")
-                    await asyncio.sleep(delay)
-
-                    # Get bounding box for randomized click coordinates
-                    bbox = await title_locator.bounding_box()
-                    if bbox is None:
-                        await title_locator.click(timeout=10000)
+                    year_loc = row.locator(".gsc_a_y span")
+                    if await year_loc.count() > 0:
+                        year = (await year_loc.inner_text()).strip()
                     else:
-                        margin_x = bbox["width"] * 0.05
-                        margin_y = bbox["height"] * 0.05
-                        x_offset = random.uniform(margin_x, bbox["width"] - margin_x)
-                        y_offset = random.uniform(margin_y, bbox["height"] - margin_y)
-                        click_x = bbox["x"] + x_offset
-                        click_y = bbox["y"] + y_offset
-                        # Smooth mouse move and click
-                        await page.mouse.move(click_x, click_y, steps=25)
-                        await page.mouse.click(click_x, click_y)
-
-                    # Wait for detail modal to load
-                    await page.wait_for_selector("#gsc_oci_table", timeout=12000)
-                    await handle_captcha_if_needed(page)
-
-                    # Extract all visible Google Scholar detail fields.
-                    fields = await page.locator(".gsc_oci_field").all_inner_texts()
-                    values = await page.locator(".gsc_oci_value").all_inner_texts()
-
-                    detail_fields = {}
-                    for f, v in zip(fields, values):
-                        field_label = f.strip()
-                        field_value = v.strip()
-                        if not field_label or not field_value:
-                            continue
-                        if field_label in detail_fields:
-                            detail_fields[field_label] = f"{detail_fields[field_label]}; {field_value}"
-                        else:
-                            detail_fields[field_label] = field_value
-
-                    extracted_data[idx]["Scholar Detail Fields JSON"] = json.dumps(detail_fields, ensure_ascii=False)
-                    doi_evidence = extract_doi_from_scholar_details(detail_fields)
-                    if doi_evidence.get("doi") and doi_evidence["doi"] != "N/A":
-                        extracted_data[idx]["DOI"] = doi_evidence["doi"]
-                        extracted_data[idx]["DOI Source"] = doi_evidence["source"]
-                        extracted_data[idx]["DOI Confidence"] = doi_evidence["confidence"]
-                        extracted_data[idx]["DOI Evidence JSON"] = json.dumps(doi_evidence.get("evidence", {}), ensure_ascii=False)
-
-                    detail_field_map = {
-                        "authors": "Authors",
-                        "publication date": "Publication Date",
-                        "journal": "Journal",
-                        "conference": "Conference",
-                        "volume": "Volume",
-                        "issue": "Issue",
-                        "pages": "Pages",
-                        "publisher": "Publisher",
-                        "description": "Description",
-                    }
-
-                    for field_label, field_value in detail_fields.items():
-                        column_name = detail_field_map.get(field_label.strip().lower())
-                        if column_name:
-                            extracted_data[idx][column_name] = field_value
-
-                    if extracted_data[idx].get("Journal", "N/A") != "N/A":
-                        extracted_data[idx]["Journal/Venue"] = extracted_data[idx]["Journal"]
-                    elif extracted_data[idx].get("Conference", "N/A") != "N/A":
-                        extracted_data[idx]["Journal/Venue"] = extracted_data[idx]["Conference"]
-
-                    if extracted_data[idx].get("Authors", "N/A") != "N/A":
-                        logger.info(f"Successfully refined author list: {extracted_data[idx]['Authors']}")
-                    else:
-                        logger.warning("Could not locate 'Authors' field in detail page.")
-
-                    if extracted_data[idx].get("Publication Date", "N/A") != "N/A":
-                        logger.info(f"Successfully refined publication date: {extracted_data[idx]['Publication Date']}")
-                    else:
-                        logger.warning("Could not locate 'Publication date' field in detail page.")
-
-                    # Close details by clicking the back button #gs_hdr_bck
-                    back_btn = page.locator("#gs_hdr_bck")
-                    if await back_btn.count() > 0:
-                        # Human-like delay before going back
-                        raw_back_delay = random.gauss(2.5, 0.5)
-                        back_delay = max(1.0, min(5.0, raw_back_delay))
-                        await asyncio.sleep(back_delay)
-
-                        back_bbox = await back_btn.bounding_box()
-                        if back_bbox:
-                            x_offset = random.uniform(back_bbox["width"] * 0.1, back_bbox["width"] * 0.9)
-                            y_offset = random.uniform(back_bbox["height"] * 0.1, back_bbox["height"] * 0.9)
-                            await page.mouse.move(back_bbox["x"] + x_offset, back_bbox["y"] + y_offset, steps=20)
-                            await page.mouse.click(back_bbox["x"] + x_offset, back_bbox["y"] + y_offset)
-                        else:
-                            await back_btn.click()
-
-                        # Wait for profile page to restore
-                        await page.wait_for_selector("#gsc_prf", timeout=10000)
-                    else:
-                        logger.warning("Could not find back button to return to profile.")
-
-                    refined_count += 1
-
+                        year_loc_direct = row.locator(".gsc_a_y")
+                        if await year_loc_direct.count() > 0:
+                            year = (await year_loc_direct.inner_text()).strip()
                 except Exception as e:
-                    logger.error(f"Failed to refine paper #{idx + 1}: {e}")
-                    # Try to force return to main profile page if stuck
-                    try:
-                        if await page.locator("#gs_hdr_bck").is_visible():
-                            await page.click("#gs_hdr_bck")
-                            await page.wait_for_selector("#gsc_prf", timeout=10000)
-                    except Exception:
-                        pass
-            
-        # ==========================================
-        # Web of Science Citations Extraction
-        # ==========================================
-        if wos_id:
-            logger.info("Initializing Web of Science Core Collection citation extraction...")
-            try:
-                wos_res = await scrape_wos_citations(wos_id, page, fetch_wos_ut=fetch_wos_ut)
-                wos_citations_map = wos_res.get("citations_map", {})
-                wos_sum_cited = wos_res.get("sum_cited", "N/A")
-                wos_sum_cited_without_self = wos_res.get("sum_cited_without_self", "N/A")
-                wos_h_index = wos_res.get("h_index", "N/A")
-                
-                logger.info(f"Web of Science extraction finished. Retrieved {len(wos_citations_map)} matching records.")
-                for idx, data in enumerate(extracted_data):
-                    title = data["Title"]
-                    norm_title = re.sub(r'[^a-z0-9]', '', title.lower())
-                    wos_info = wos_citations_map.get(norm_title, {"citations": "N/A", "accession_number": "N/A"})
-                    extracted_data[idx]["WoS Citations"] = wos_info.get("citations", "N/A")
-                    extracted_data[idx]["WoS Author Citations"] = wos_sum_cited
-                    extracted_data[idx]["WoS Author Citations (Non-Self)"] = wos_sum_cited_without_self
-                    extracted_data[idx]["WoS Author H-Index"] = wos_h_index
-                    if fetch_wos_ut:
-                        extracted_data[idx]["WoS Accession Number"] = wos_info.get("accession_number", "N/A")
-            except Exception as e:
-                logger.error(f"Error matching Web of Science citations: {e}")
+                    logger.error(f"Row {idx}: Failed to extract columns cleanly: {e}")
 
-        # Close persistent context safely
-        logger.info("Closing persistent browser context...")
-        await context.close()
+                extracted_data.append({
+                    "Title": title,
+                    "Authors": authors,
+                    "Journal/Venue": venue,
+                    "Citations": citations,
+                    "WoS Citations": "N/A",
+                    "Year": year,
+                    "Publication Date": year,
+                    "Journal": "N/A",
+                    "Conference": "N/A",
+                    "Volume": "N/A",
+                    "Issue": "N/A",
+                    "Pages": "N/A",
+                    "Publisher": "N/A",
+                    "Description": "N/A",
+                    "DOI": "N/A",
+                    "DOI Source": "N/A",
+                    "DOI Confidence": "none",
+                    "DOI Evidence JSON": "{}",
+                    "OpenAlex ID": "N/A",
+                    "OpenAlex DOI": "N/A",
+                    "OpenAlex Match Confidence": "none",
+                    "OpenAlex Match Method": "N/A",
+                    "OpenAlex Authors": "N/A",
+                    "OpenAlex Author Count": "N/A",
+                    "OpenAlex Corresponding Authors": "N/A",
+                    "OpenAlex Corresponding Author Positions": "N/A",
+                    "OpenAlex Source": "N/A",
+                    "OpenAlex Publisher": "N/A",
+                    "OpenAlex Volume": "N/A",
+                    "OpenAlex Issue": "N/A",
+                    "OpenAlex Pages": "N/A",
+                    "OpenAlex Evidence JSON": "{}",
+                    "Metadata Enrichment Source": "N/A",
+                    "Metadata Enrichment Confidence": "none",
+                    "Scholar Detail Fields JSON": "{}",
+                    "Target Author Query": "N/A",
+                    "Target Author Position": "N/A",
+                    "Target Author Matched Name": "N/A",
+                    "Highlighted Authors": authors,
+                    "Corresponding Author Query": "N/A",
+                    "Corresponding Author Position": "N/A",
+                    "Corresponding Author Matched Name": "N/A",
+                    "Is Target Author Corresponding": "N/A",
+                    "Highlighted Corresponding Authors": authors,
+                    "Corresponding Evidence Source": "N/A",
+                    "Corresponding Confidence": "none",
+                    "Corresponding Evidence JSON": "{}",
+                    "Scholar Author Citations": scholar_citations,
+                    "Scholar Author H-Index": scholar_h_index,
+                    "WoS Author Citations": "N/A",
+                    "WoS Author Citations (Non-Self)": "N/A",
+                    "WoS Author H-Index": "N/A"
+                })
+
+            # Secondary modal refinement in Playwright
+            refine_indices = []
+            if refine_mode == "auto":
+                for idx, data in enumerate(extracted_data):
+                    if fetch_doi or "..." in data["Authors"]:
+                        refine_indices.append(idx)
+            elif refine_mode == "all":
+                refine_indices = list(range(len(extracted_data)))
+            elif refine_mode != "none":
+                try:
+                    parts = [int(p.strip()) - 1 for p in refine_mode.split(",") if p.strip().isdigit()]
+                    refine_indices = [p for p in parts if 0 <= p < len(extracted_data)]
+                except Exception as e:
+                    logger.error(f"Failed to parse refine indices '{refine_mode}': {e}")
+
+            if refine_indices:
+                to_refine = refine_indices[:refine_limit]
+                logger.info(f"Refining top {len(to_refine)} selected papers in browser...")
+                for idx in to_refine:
+                    try:
+                        await handle_captcha_if_needed(page)
+                        title_locator = page.locator("tr.gsc_a_tr a.gsc_a_at").nth(idx)
+                        if await title_locator.count() == 0:
+                            continue
+                        await title_locator.scroll_into_view_if_needed()
+                        await asyncio.sleep(random.uniform(1.5, 3.5))
+                        await title_locator.click(timeout=10000)
+                        await page.wait_for_selector("#gsc_oci_table", timeout=12000)
+                        await handle_captcha_if_needed(page)
+
+                        fields = await page.locator(".gsc_oci_field").all_inner_texts()
+                        values = await page.locator(".gsc_oci_value").all_inner_texts()
+                        detail_fields = {f.strip(): v.strip() for f, v in zip(fields, values) if f.strip() and v.strip()}
+                        extracted_data[idx]["Scholar Detail Fields JSON"] = json.dumps(detail_fields, ensure_ascii=False)
+
+                        doi_ev = extract_doi_from_scholar_details(detail_fields)
+                        if doi_ev.get("doi") and doi_ev["doi"] != "N/A":
+                            extracted_data[idx]["DOI"] = doi_ev["doi"]
+                            extracted_data[idx]["DOI Source"] = doi_ev["source"]
+                            extracted_data[idx]["DOI Confidence"] = doi_ev["confidence"]
+                            extracted_data[idx]["DOI Evidence JSON"] = json.dumps(doi_ev.get("evidence", {}), ensure_ascii=False)
+
+                        back_btn = page.locator("#gs_hdr_bck, #gsc_oci_back, a.gs_ico_back")
+                        if await back_btn.count() > 0 and await back_btn.is_visible():
+                            await back_btn.click()
+                            await page.wait_for_selector("#gsc_prf", timeout=10000)
+                    except Exception as e:
+                        logger.error(f"Failed to refine paper #{idx + 1}: {e}")
+
+            # WoS extraction
+            if wos_id:
+                try:
+                    wos_res = await scrape_wos_citations(wos_id, page, fetch_wos_ut=fetch_wos_ut)
+                    wos_citations_map = wos_res.get("citations_map", {})
+                    for idx, data in enumerate(extracted_data):
+                        title = data["Title"]
+                        norm_title = re.sub(r'[^a-z0-9]', '', title.lower())
+                        wos_info = wos_citations_map.get(norm_title, {"citations": "N/A", "accession_number": "N/A"})
+                        extracted_data[idx]["WoS Citations"] = wos_info.get("citations", "N/A")
+                        extracted_data[idx]["WoS Author Citations"] = wos_res.get("sum_cited", "N/A")
+                        extracted_data[idx]["WoS Author Citations (Non-Self)"] = wos_res.get("sum_cited_without_self", "N/A")
+                        extracted_data[idx]["WoS Author H-Index"] = wos_res.get("h_index", "N/A")
+                        if fetch_wos_ut:
+                            extracted_data[idx]["WoS Accession Number"] = wos_info.get("accession_number", "N/A")
+                except Exception as e:
+                    logger.error(f"Error matching Web of Science citations: {e}")
+
+            await context.close()
 
         if openalex_enrich and extracted_data:
             logger.info("Enriching records via OpenAlex before Crossref fallback...")
@@ -1861,6 +1849,17 @@ def main():
         default=0.82,
         help="Minimum OpenAlex title-match confidence required to overwrite missing metadata for non-DOI matches."
     )
+    parser.add_argument(
+        "--fast",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use ultra-fast HTTP protocol path (default: True). Automatically falls back to Playwright browser if blocked."
+    )
+    parser.add_argument(
+        "--browser",
+        action="store_true",
+        help="Force using Playwright Chromium browser automation instead of Fast-Path HTTP protocol."
+    )
     parser.set_defaults(fetch_wos_ut=None)
     
     args = parser.parse_args()
@@ -1884,7 +1883,7 @@ def main():
     # Standard profile URL format
     profile_url = f"https://scholar.google.com/citations?hl=en&user={args.user_id.strip()}"
     
-    # Run Async scraping loop - Default Highest Success Rate Method (Playwright + Human Evasion)
+    # Run Async scraping loop
     try:
         asyncio.run(scrape_scholar_profile(
             profile_url, 
@@ -1906,7 +1905,9 @@ def main():
             openalex_api_key=args.openalex_api_key,
             openalex_max_records=args.openalex_max_records,
             openalex_min_confidence=args.openalex_min_confidence,
-            output_sort=args.output_sort
+            output_sort=args.output_sort,
+            use_fastpath=args.fast,
+            force_browser=args.browser,
         ))
     except KeyboardInterrupt:
         logger.info("Process interrupted by user. Exiting.")
